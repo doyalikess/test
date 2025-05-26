@@ -18,22 +18,13 @@ const rawBodySaver = (req, res, buf, encoding) => {
 };
 app.use(express.json({ verify: rawBodySaver }));
 
-// Setup CORS to allow only your frontend URL
-const allowedOrigins = [
-  'https://frontend-iyqe-fr3b8jeji-doyalikess-projects.vercel.app',
-  'http://localhost:3000' // Optional: for local testing
-];
-
+// Configure CORS to allow your frontend domain
 app.use(cors({
-  origin: function(origin, callback){
-    // allow requests with no origin (like mobile apps or curl requests)
-    if(!origin) return callback(null, true);
-    if(allowedOrigins.indexOf(origin) === -1){
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  }
+  origin: [
+    'https://frontend-iyqe-fr3b8jeji-doyalikess-projects.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true,
 }));
 
 // MongoDB Connection
@@ -178,7 +169,7 @@ app.post('/api/payment/deposit', authMiddleware, async (req, res) => {
 
 // NOWPayments webhook handler - listens for IPN notifications
 app.post('/api/nowpayments-webhook', async (req, res) => {
-  console.log('Received raw body:', req.rawBody);
+  console.log('Received raw body:', req.rawBody);  // <== Added this for debugging
 
   const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
   const signature = req.headers['x-nowpayments-signature'];
