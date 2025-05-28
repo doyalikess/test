@@ -5,12 +5,17 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const axios = require('axios');  // For NOWPAYMENTS API calls
+const axios = require('axios');
 
-// Initialize the app
 const app = express();
 
-// Middleware to capture raw body for webhook signature verification
+// CORS setup for local frontend and deployed frontend
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://dgenrand0.vercel.app'], // Allow both local and deployed frontends
+  credentials: true
+}));
+
+// Middleware to parse JSON and capture raw body for webhooks
 const rawBodySaver = (req, res, buf, encoding) => {
   if (buf && buf.length) {
     req.rawBody = buf.toString(encoding || 'utf8');
@@ -18,16 +23,7 @@ const rawBodySaver = (req, res, buf, encoding) => {
 };
 app.use(express.json({ verify: rawBodySaver }));
 
-// Configure CORS to allow your frontend domain
-app.use(cors({
-  origin: [
-    'https://frontend-iyqe-fr3b8jeji-doyalikess-projects.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-}));
-
-// MongoDB Connection
+// MongoDB connection
 mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => {
@@ -35,10 +31,8 @@ mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTop
     process.exit(1);
   });
 
-// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'secret_key';
 
-// User Model
 const UserSchema = new mongoose.Schema({
   username: { type: String, unique: true, required: true },
   passwordHash: { type: String, required: true },
@@ -55,7 +49,6 @@ UserSchema.methods.validatePassword = async function (password) {
 
 const User = mongoose.model('User', UserSchema);
 
-// Middleware to protect routes
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Authorization header missing' });
@@ -74,7 +67,6 @@ function authMiddleware(req, res, next) {
 
 // Routes
 
-// Signup
 app.post('/api/auth/signup', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -94,7 +86,6 @@ app.post('/api/auth/signup', async (req, res) => {
   }
 });
 
-// Login
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -113,7 +104,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Get current logged-in user info (username & balance)
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.userId).select('-passwordHash -__v');
@@ -128,7 +118,6 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
-// NOWPAYMENTS deposit route - create payment invoice
 app.post('/api/payment/deposit', authMiddleware, async (req, res) => {
   const { amount, currency } = req.body;
 
@@ -137,7 +126,6 @@ app.post('/api/payment/deposit', authMiddleware, async (req, res) => {
   }
 
   try {
-    // Use userId in order_id to link payment to user
     const order_id = `order_${Date.now()}_${req.userId}`;
 
     const response = await axios.post(
@@ -167,15 +155,13 @@ app.post('/api/payment/deposit', authMiddleware, async (req, res) => {
   }
 });
 
-// NOWPayments webhook handler - listens for IPN notifications
 app.post('/api/nowpayments-webhook', async (req, res) => {
-  console.log('Received raw body:', req.rawBody);  // <== Added this for debugging
+  console.log('Received raw body:', req.rawBody);
 
   const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
   const signature = req.headers['x-nowpayments-signature'];
   const bodyString = req.rawBody;
 
-  // Verify webhook signature
   const hash = crypto.createHmac('sha256', ipnSecret).update(bodyString).digest('hex');
   if (signature !== hash) {
     return res.status(401).json({ error: 'Invalid signature' });
@@ -184,10 +170,8 @@ app.post('/api/nowpayments-webhook', async (req, res) => {
   const data = req.body;
   const { payment_status, order_id, price_amount } = data;
 
-  // Only update balance on confirmed or finished payments
   if (payment_status === 'confirmed' || payment_status === 'finished') {
     try {
-      // order_id format: "order_<timestamp>_<userId>"
       const parts = order_id.split('_');
       const userId = parts.slice(2).join('_');
 
@@ -213,7 +197,6 @@ app.post('/api/nowpayments-webhook', async (req, res) => {
   res.json({ message: 'Payment status not confirmed, no action taken' });
 });
 
-// Endpoint to update user balance manually (optional)
 app.post('/api/user/add-balance', authMiddleware, async (req, res) => {
   const { amount } = req.body;
 
@@ -232,7 +215,6 @@ app.post('/api/user/add-balance', authMiddleware, async (req, res) => {
   }
 });
 
-// Coinflip Game Endpoint
 app.post('/api/game/coinflip', authMiddleware, async (req, res) => {
   const { amount, choice } = req.body;
   if (!amount || amount <= 0 || !['heads', 'tails'].includes(choice)) {
@@ -273,6 +255,5 @@ app.post('/api/game/coinflip', authMiddleware, async (req, res) => {
   }
 });
 
-// Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
